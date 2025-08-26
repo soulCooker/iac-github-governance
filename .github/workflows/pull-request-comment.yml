@@ -1,0 +1,234 @@
+# .github/workflows/pull-request-comment.yml
+name: Pull Request Comment Handler
+
+on:
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  get_pr_info:
+    if: |
+      github.event.issue.pull_request &&
+      (startsWith(github.event.comment.body, '$iac terraform plan') ||
+      startsWith(github.event.comment.body, '$iac terraform apply'))
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      base_ref: ${{ steps.get_commit.outputs.BASE_REF }}
+      base_sha: ${{ steps.get_commit.outputs.BASE_SHA }}
+      commit_id: ${{ steps.get_commit.outputs.COMMIT_ID }}
+      pr_number: ${{ steps.get_commit.outputs.PR_NUMBER }}
+    steps:
+      - name: Get PR latest commit
+        id: get_commit
+        run: |
+          pr_number="${{ github.event.issue.number }}"
+          echo "Fetching PR information for PR #$pr_number"
+
+          response=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/$pr_number")
+
+          # requested_reviewers=$(echo $response | jq -r '.requested_reviewers)
+          # actor=${{ github.actor }}
+          # found=false
+          # for person in "${requested_reviewers[@]}"; do
+          #     if [[ "$person" == "$actor" ]]; then
+          #         found=true
+          #         break
+          #     fi
+          # done
+
+          # if [[ "$found" == true ]]; then
+          #     echo "Target folder was changed"
+          # fi
+
+          mergeable=$(echo $response | jq -r '.mergeable')
+          if [ "$mergeable" != "true" ]; then
+              echo "Error: The PR is not mergeable (mergeable: $mergeable)"
+              echo "Please resolve conflicts and ensure the PR is ready for merge"
+              exit 1
+          fi
+
+          commit_id=$(echo "$response" | jq -r '.head.sha')
+          if [ -z "$commit_id" ] || [ "$commit_id" == "null" ]; then
+              echo "Error: Invalid or missing commit_id in PR response"
+              exit 1
+          fi
+
+          base_ref=$(echo "$response" | jq -r '.base.ref')
+          base_sha=$(echo "$response" | jq -r '.base.sha')
+
+          if [ -z "$base_ref" ] || [ "$base_ref" == "null" ]; then
+              echo "Error: Invalid or missing base_ref in PR response"
+              exit 1
+          fi
+
+          if [ -z "$base_sha" ] || [ "$base_sha" == "null" ]; then
+              echo "Error: Invalid or missing base_sha in PR response"
+              exit 1
+          fi
+
+          echo "PR Info - Number: $pr_number, Commit: $commit_id, Base: $base_ref ($base_sha)"
+
+          echo "COMMIT_ID=$commit_id" >> $GITHUB_OUTPUT
+          echo "PR_NUMBER=$pr_number" >> $GITHUB_OUTPUT
+          echo "BASE_REF=$base_ref" >> $GITHUB_OUTPUT
+          echo "BASE_SHA=$base_sha" >> $GITHUB_OUTPUT
+
+  upload_source_package:
+    needs: get_pr_info
+    runs-on: ubuntu-latest
+    outputs:
+      version_id: ${{ steps.upload_source_package.outputs.VERSION_ID }}
+      object_path: ${{ steps.upload_source_package.outputs.OBJECT_PATH }}
+      result_path: ${{ steps.upload_source_package.outputs.RESULT_PATH }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ needs.get_pr_info.outputs.commit_id }}
+
+      - name: Setup Python environment
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install alibabacloud-oss-v2
+
+      - name: Create source package
+        run: |
+          echo "Creating source package..."
+          zip -r code.zip . -x "*.git*" "*.terraform*"
+          if [ ! -f code.zip ]; then
+            echo "Error: Failed to create code.zip"
+            exit 1
+          fi
+          echo "Created code.zip with size:"
+          ls -lh code.zip
+
+      - name: Upload source package
+        id: upload_source_package
+        run: |
+          commit_id=${{ needs.get_pr_info.outputs.commit_id}}
+
+          prefix=$(echo "$OSS_OBJECT_PREFIX" | sed 's/^\/\|\/$//g')
+          if [[ $prefix == "" ]]; then
+              prefix=""
+          else
+              prefix=$prefix/
+          fi
+          object_path="${prefix}repositories/${{ github.event.repository.full_name }}/${{ needs.get_pr_info.outputs.base_ref}}"
+          result_path="${prefix}notifications/${{ github.event.repository.full_name }}"
+          echo "OBJECT_PATH=$object_path" >> $GITHUB_OUTPUT
+          echo "RESULT_PATH=$result_path" >> $GITHUB_OUTPUT 
+
+          echo "Uploading to OSS with key: $object_path/code.zip"
+          output=$(python scripts/upload_to_oss.py --key="$object_path/code.zip" --file_path=code.zip --unique_key="$commit_id" 2>&1)
+
+          if [ $? -ne 0 ]; then
+            echo "Error: Failed to upload to OSS"
+            echo "$output"
+            exit 1
+          fi
+
+          echo "Upload output: $output"
+          version_id=$(echo "$output" | grep -o 'version_id: [^,]*' | cut -d' ' -f2)
+
+          if [ -z "$version_id" ]; then
+            echo "Warning: Could not extract version_id from output"
+            version_id="unknown"
+          fi
+
+          echo "VERSION_ID=$version_id" >> $GITHUB_OUTPUT
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_SECRET }}
+          OSS_BUCKET: ${{ vars.OSS_BUCKET }}
+          OSS_REGION: ${{ vars.OSS_REGION }}
+          OSS_OBJECT_PREFIX: ${{ vars.OSS_OBJECT_PREFIX }}
+
+  create_comment_trigger:
+    needs: [get_pr_info, upload_source_package]
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ needs.get_pr_info.outputs.commit_id }}
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v46
+        with:
+          sha: ${{ needs.get_pr_info.outputs.commit_id }}
+          base_sha: ${{ needs.get_pr_info.outputs.base_sha }}
+          separator: ","
+          files: |
+            **/*.yaml
+
+      - name: Create trigger event file
+        run: |
+          comment_body="\${{ github.event.comment.body }}"
+
+          # Parse command type with better error handling
+          if [[ "$comment_body" =~ ^\$iac[[:space:]]+terraform[[:space:]]+plan[[:space:]]*(.*)$ ]]; then
+            command="terraform plan"
+            command_param="${BASH_REMATCH[1]}"
+          elif [[ "$comment_body" =~ ^\$iac[[:space:]]+terraform[[:space:]]+apply[[:space:]]*(.*)$ ]]; then
+            command="terraform apply"
+            command_param="${BASH_REMATCH[1]}"
+          else
+            echo "Error: Invalid command format. Expected '\$iac terraform plan' or '\$iac terraform apply'"
+            echo "Received: $comment_body"
+            exit 1
+          fi
+
+          object_path="oss::https://${{ vars.OSS_BUCKET }}.oss-${{ vars.OSS_REGION }}.aliyuncs.com/${{ needs.upload_source_package.outputs.object_path }}/code.zip"
+          result_path="oss::https://${{ vars.OSS_BUCKET }}.oss-${{ vars.OSS_REGION }}.aliyuncs.com/${{ needs.upload_source_package.outputs.result_path }}/${{ github.run_id }}.json"
+
+          echo "Creating trigger event file for command: $command"
+          cat > trigger-event.json << EOF
+          {
+            "id": "${{ github.run_id }}",
+            "action": "$command",
+            "commandParam": "$command_param",
+            "codeVersionId": "${{ needs.upload_source_package.outputs.version_id }}",
+            "codePackagePath": "$object_path",
+            "execResultPath": "$result_path",
+            "changedFolders": "${{ steps.changed-files.outputs.all_changed_files }}"
+          }
+          EOF
+
+          echo "Trigger event file content:"
+          cat trigger-event.json
+
+      - name: Setup Python environment
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install alibabacloud-oss-v2
+
+      - name: Upload trigger file
+        run: |
+          object_path=${{ needs.upload_source_package.outputs.object_path }}/${{ github.run_id }}.json
+          python scripts/upload_to_oss.py --key=$object_path --file_path=trigger-event.json
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_SECRET }}
+          OSS_BUCKET: ${{ vars.OSS_BUCKET }}
+          OSS_REGION: ${{ vars.OSS_REGION }}
