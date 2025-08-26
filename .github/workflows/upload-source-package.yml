@@ -4,34 +4,20 @@ name: Upload Source Package to OSS
 on:
   workflow_call:
 
-
 env:
   OSS_ACCESS_KEY_ID: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_ID }}
   OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_SECRET }}
   OSS_BUCKET: ${{ vars.OSS_BUCKET }}
   OSS_REGION: ${{ vars.OSS_REGION }}
-  OSS_OBJECT_PREFIX: ${{ vars.OSS_OBJECT_PREFIX }}
-
 
 jobs:
   upload_source_package:
-    if: github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Setup Python environment
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.9"
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install alibabacloud-oss-v2
 
       - name: Create source package
         run: |
@@ -44,20 +30,24 @@ jobs:
           echo "Created code.zip with size:"
           ls -lh code.zip
 
+      - name: Setup Python environment
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install alibabacloud-oss-v2
+
       - name: Upload source package
         id: upload_source_package
         run: |
           commit_id=${{ github.event.pull_request.head.sha }}
-          prefix=$(echo "$OSS_OBJECT_PREFIX" | sed 's/^\/\|\/$//g')
-          if [[ $prefix == "" ]]; then
-              prefix=""
-          else
-              prefix=$prefix/
-          fi
-          object_path="${prefix}repositories/${{ github.event.repository.full_name }}/${{ github.base_ref }}"
-         
-          echo "Uploading to OSS with key: $object_path/code.zip"
-          output=$(python scripts/upload_to_oss.py --key="$object_path/code.zip" --file_path=code.zip --unique_key="$commit_id" 2>&1)
+          object_path="repositories/${{ github.event.repository.full_name }}/${{ github.base_ref }}/code.zip"
+
+          echo "Uploading to OSS with key: $object_path"
+          output=$(python scripts/upload_to_oss.py --key="$object_path" --file_path=code.zip --unique_key="$commit_id" 2>&1)
 
           if [ $? -ne 0 ]; then
             echo "Error: Failed to upload to OSS"
