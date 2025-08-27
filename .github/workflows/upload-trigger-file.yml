@@ -33,7 +33,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          path: code
           ref: ${{ inputs.head_sha }}
+
+      - name: Checkout scripts
+        uses: actions/checkout@v4
+        with:
+          repository: shanye997/iac-github-governance
+          path: governance
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
+          sparse-checkout: |
+            scripts/upload_to_oss.py
 
       - name: Setup Python environment
         uses: actions/setup-python@v4
@@ -50,7 +61,7 @@ jobs:
         run: |
 
           echo "Creating source package..."
-          zip -q -r code.zip . -x "*.git*" "*.terraform*" 
+          cd code && zip -q -r ../code.zip . -x "*.git*" "*.terraform*" && cd ..
           if [ ! -f code.zip ]; then
             echo "Error: Failed to create code.zip"
             exit 1
@@ -63,7 +74,7 @@ jobs:
           code_path="${object_path}/code.zip"
 
           echo "Uploading to OSS with key: $code_path"
-          output=$(python scripts/upload_to_oss.py --key="$code_path" --file_path=code.zip --unique_key="${{ inputs.head_sha }}" 2>&1)
+          output=$(python governance/scripts/upload_to_oss.py --key="$code_path" --file_path=code.zip --unique_key="${{ inputs.head_sha }}" 2>&1)
 
           if [ $? -ne 0 ]; then
             echo "Error: Failed to upload to OSS"
@@ -90,7 +101,7 @@ jobs:
           trigger_path="${{ steps.check_source_package_version.outputs.OBJECT_PATH }}/${trigger_file_name}"
 
           code_path="${oss_path}/${{ steps.check_source_package_version.outputs.OBJECT_PATH }}/code.zip"
-          result_path="${oss_path}/notifications/${{ github.repository }}/${{ inputs.base_ref }}/trigger_file_name"
+          result_path="${oss_path}/notifications/${{ github.repository }}/${{ inputs.base_ref }}/${trigger_file_name}"
 
           echo "Creating trigger event file for command: ${{ inputs.command }}"
           cat > trigger-event.json << EOF
@@ -107,4 +118,4 @@ jobs:
           echo "Trigger event file content:"
           cat trigger-event.json
 
-          python scripts/upload_to_oss.py --key=$trigger_path --file_path=trigger-event.json
+          python governance/scripts/upload_to_oss.py --key=$trigger_path --file_path=trigger-event.json

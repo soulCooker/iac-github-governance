@@ -24,12 +24,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          path: code
           ref: ${{ inputs.head_sha }}
+
+      - name: Checkout scripts
+        uses: actions/checkout@v4
+        with:
+          repository: shanye997/iac-github-governance
+          path: governance
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
+          sparse-checkout: |
+            scripts/upload_to_oss.py
 
       - name: Create source package
         run: |
           echo "Creating source package..."
-          zip -q -r code.zip . -x "*.git*" "*.terraform*"
+          cd code && zip -q -r ../code.zip . -x "*.git*" "*.terraform*" && cd ..
           if [ ! -f code.zip ]; then
             echo "Error: Failed to create code.zip"
             exit 1
@@ -53,13 +64,12 @@ jobs:
           object_path="repositories/${{ github.repository }}/${{ inputs.base_ref }}"
           code_path="${object_path}/code.zip"
 
+          ls -all
+
           echo "Uploading to OSS with key: $code_path"
-          output=$(python scripts/upload_to_oss.py --key="$code_path" --file_path=code.zip --unique_key="${{ inputs.head_sha }}" 2>&1)
+          python governance/scripts/upload_to_oss.py --key="$code_path" --file_path=code.zip --unique_key="${{ inputs.head_sha }}"
 
           if [ $? -ne 0 ]; then
             echo "Error: Failed to upload to OSS"
-            echo "$output"
             exit 1
           fi
-
-          echo "Upload output: $output"
