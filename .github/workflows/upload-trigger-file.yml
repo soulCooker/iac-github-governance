@@ -3,6 +3,22 @@ name: upload trigger file to OSS
 
 on:
   workflow_call:
+    inputs:
+      base_ref:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
+      command:
+        required: true
+        type: string
+      changed_files:
+        required: true
+        type: string
+      trigger_file_name:
+        required: true
+        type: string
 
 env:
   OSS_ACCESS_KEY_ID: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_ID }}
@@ -10,15 +26,14 @@ env:
   OSS_BUCKET: ${{ vars.OSS_BUCKET }}
   OSS_REGION: ${{ vars.OSS_REGION }}
 
-jobs: 
+jobs:
   create_comment_trigger:
-    needs: [get_pr_info]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-          ref: ${{ needs.get_pr_info.outputs.commit_id }}
+          ref: ${{ inputs.head_sha }}
 
       - name: Setup Python environment
         uses: actions/setup-python@v4
@@ -35,7 +50,7 @@ jobs:
         run: |
 
           echo "Creating source package..."
-          zip -r code.zip . -x "*.git*" "*.terraform*"
+          zip -q -r code.zip . -x "*.git*" "*.terraform*" 
           if [ ! -f code.zip ]; then
             echo "Error: Failed to create code.zip"
             exit 1
@@ -43,12 +58,12 @@ jobs:
           echo "Created code.zip with size:"
           ls -lh code.zip
 
-          commit_id=${{ needs.get_pr_info.outputs.commit_id}}
-          object_path="repositories/${{ github.event.repository.full_name }}/${{ needs.get_pr_info.outputs.base_ref}}"
+          object_path="repositories/${{ github.repository }}/${{ inputs.base_ref }}"
           echo "OBJECT_PATH=$object_path" >> $GITHUB_OUTPUT
+          code_path="${object_path}/code.zip"
 
-          echo "Uploading to OSS with key: $object_path"
-          output=$(python scripts/upload_to_oss.py --key="$object_path/code.zip" --file_path=code.zip --unique_key="$commit_id" 2>&1)
+          echo "Uploading to OSS with key: $code_path"
+          output=$(python scripts/upload_to_oss.py --key="$code_path" --file_path=code.zip --unique_key="${{ inputs.head_sha }}" 2>&1)
 
           if [ $? -ne 0 ]; then
             echo "Error: Failed to upload to OSS"
@@ -66,48 +81,26 @@ jobs:
 
           echo "VERSION_ID=$version_id" >> $GITHUB_OUTPUT
 
-      - name: Get changed files
-        id: changed-files
-        uses: tj-actions/changed-files@v46
-        with:
-          sha: ${{ needs.get_pr_info.outputs.commit_id }}
-          base_sha: ${{ needs.get_pr_info.outputs.base_sha }}
-          separator: ","
-          files: |
-            **/*.yaml
-            **/*.tf
-
       - name: Create and upload trigger event file
         run: |
-          comment_body="${{ github.event.comment.body }}"
-
-          # Parse command type with strict matching
-          if [[ "$comment_body" == "iac terraform plan" ]]; then
-              command="terraform plan"
-          elif [[ "$comment_body" == "iac terraform apply" ]]; then
-              command="terraform apply"
-          else
-              echo "Error: Invalid command format. Expected 'iac terraform plan' or 'iac terraform apply'"
-              echo "Received: $comment_body"
-              exit 1
-          fi
 
           oss_path="oss::https://${{ vars.OSS_BUCKET }}.oss-${{ vars.OSS_REGION }}.aliyuncs.com"
 
-          trigger_event_file="PR#${{ needs.get_pr_info.outputs.pr_number }}-[${{ github.actor }}]-${{ github.run_id }}.json"
-          trigger_path="${{ steps.check_source_package_version.outputs.OBJECT_PATH }}/${trigger_event_file}"
+          trigger_file_name="${{ inputs.trigger_file_name }}"
+          trigger_path="${{ steps.check_source_package_version.outputs.OBJECT_PATH }}/${trigger_file_name}"
 
-          result_path="${oss_path}/notifications/${{ github.event.repository.full_name }}/${{ needs.get_pr_info.outputs.base_ref }}/trigger_event_file"
+          code_path="${oss_path}/${{ steps.check_source_package_version.outputs.OBJECT_PATH }}/code.zip"
+          result_path="${oss_path}/notifications/${{ github.repository }}/${{ inputs.base_ref }}/trigger_file_name"
 
-          echo "Creating trigger event file for command: $command"
+          echo "Creating trigger event file for command: ${{ inputs.command }}"
           cat > trigger-event.json << EOF
           {
             "id": "${{ github.run_id }}",
-            "action": "$command",
+            "action": "${{ inputs.command }}",
             "codeVersionId": "${{ steps.check_source_package_version.outputs.VERSION_ID }}",
-            "codePackagePath": "${oss_path}/${{ steps.check_source_package_version.outputs.OBJECT_PATH }}/code.zip",
+            "codePackagePath": "$code_path",
             "execResultPath": "$result_path",
-            "changedFolders": "${{ steps.changed-files.outputs.all_changed_files }}"
+            "changedFolders": "${{ inputs.changed_files }}"
           }
           EOF
 
