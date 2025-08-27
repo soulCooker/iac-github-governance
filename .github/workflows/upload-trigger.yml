@@ -10,64 +10,7 @@ env:
   OSS_BUCKET: ${{ vars.OSS_BUCKET }}
   OSS_REGION: ${{ vars.OSS_REGION }}
 
-jobs:
-  get_pr_info:
-    if: |
-      github.event.issue.pull_request &&
-      (startsWith(github.event.comment.body, 'iac terraform plan') ||
-      startsWith(github.event.comment.body, 'iac terraform apply'))
-    runs-on: ubuntu-latest
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    outputs:
-      base_ref: ${{ steps.get_pr_info.outputs.BASE_REF }}
-      base_sha: ${{ steps.get_pr_info.outputs.BASE_SHA }}
-      commit_id: ${{ steps.get_pr_info.outputs.COMMIT_ID }}
-      pr_number: ${{ steps.get_pr_info.outputs.PR_NUMBER }}
-    steps:
-      - name: Get PR info
-        id: get_pr_info
-        run: |
-          pr_number="${{ github.event.issue.number }}"
-          echo "Fetching PR information for PR #$pr_number"
-
-          response=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-            "https://api.github.com/repos/${{ github.repository }}/pulls/$pr_number")
-
-          echo "BASE_SHA=$base_sha" >> $GITHUB_OUTPUT
-
-
-          mergeable=$(echo $response | jq -r '.mergeable')
-          if [ "$mergeable" != "true" ]; then
-              echo "Error: The PR is not mergeable (mergeable: $mergeable)"
-              echo "Please resolve conflicts and ensure the PR is ready for merge"
-              exit 1
-          fi
-
-          commit_id=$(echo "$response" | jq -r '.head.sha')
-          if [ -z "$commit_id" ] || [ "$commit_id" == "null" ]; then
-              echo "Error: Invalid or missing commit_id in PR response"
-              exit 1
-          fi
-
-          base_ref=$(echo "$response" | jq -r '.base.ref')
-          base_sha=$(echo "$response" | jq -r '.base.sha')
-          if [ -z "$base_ref" ] || [ "$base_ref" == "null" ]; then
-              echo "Error: Invalid or missing base_ref in PR response"
-              exit 1
-          fi
-          if [ -z "$base_sha" ] || [ "$base_sha" == "null" ]; then
-              echo "Error: Invalid or missing base_sha in PR response"
-              exit 1
-          fi
-
-          echo "PR Info - Number: $pr_number, Commit: $commit_id, Base: $base_ref ($base_sha)"
-
-          echo "COMMIT_ID=$commit_id" >> $GITHUB_OUTPUT
-          echo "PR_NUMBER=$pr_number" >> $GITHUB_OUTPUT
-          echo "BASE_REF=$base_ref" >> $GITHUB_OUTPUT
-          echo "BASE_SHA=$base_sha" >> $GITHUB_OUTPUT
-
+jobs: 
   create_comment_trigger:
     needs: [get_pr_info]
     runs-on: ubuntu-latest

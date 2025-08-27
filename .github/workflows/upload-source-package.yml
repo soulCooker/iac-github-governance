@@ -3,6 +3,16 @@ name: Upload Source Package to OSS
 
 on:
   workflow_call:
+    inputs:
+      repo_full_name:
+        required: true
+        type: string
+      base_ref:
+        required: true
+        type: string
+      commit_sha:
+        required: true
+        type: string
 
 env:
   OSS_ACCESS_KEY_ID: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_ID }}
@@ -17,7 +27,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ inputs.commit_sha }}
 
       - name: Create source package
         run: |
@@ -43,8 +53,8 @@ jobs:
       - name: Upload source package
         id: upload_source_package
         run: |
-          commit_id=${{ github.event.pull_request.head.sha }}
-          object_path="repositories/${{ github.event.repository.full_name }}/${{ github.base_ref }}/code.zip"
+          commit_id=${{ inputs.commit_sha }}
+          object_path="repositories/${{ inputs.repo_full_name }}/${{ inputs.base_ref }}/code.zip"
 
           echo "Uploading to OSS with key: $object_path"
           output=$(python scripts/upload_to_oss.py --key="$object_path" --file_path=code.zip --unique_key="$commit_id" 2>&1)
