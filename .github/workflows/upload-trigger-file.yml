@@ -19,6 +19,11 @@ on:
       trigger_file_name:
         required: true
         type: string
+    
+    outputs:
+      result_path:
+        description: "The log path of the execution result"
+        value: ${{ jobs.create_comment_trigger.outputs.result_path }}
 
 env:
   OSS_ACCESS_KEY_ID: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_ID }}
@@ -29,6 +34,8 @@ env:
 jobs:
   create_comment_trigger:
     runs-on: ubuntu-latest
+    outputs:
+      result_path: ${{ steps.create_trigger_event_file.outputs.RESULT_PATH }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -93,6 +100,7 @@ jobs:
           echo "VERSION_ID=$version_id" >> $GITHUB_OUTPUT
 
       - name: Create and upload trigger event file
+        id: create_trigger_event_file
         run: |
 
           oss_path="oss::https://${{ vars.OSS_BUCKET }}.oss-${{ vars.OSS_REGION }}.aliyuncs.com"
@@ -102,6 +110,7 @@ jobs:
 
           code_path="${oss_path}/${{ steps.check_source_package_version.outputs.OBJECT_PATH }}/code.zip"
           result_path="${oss_path}/notifications/${{ github.repository }}/${{ inputs.base_ref }}/${trigger_file_name}"
+          echo "RESULT_PATH=$result_path" >> $GITHUB_OUTPUT
 
           echo "Creating trigger event file for command: ${{ inputs.command }}"
           cat > trigger-event.json << EOF
