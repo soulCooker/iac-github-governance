@@ -150,7 +150,7 @@ def format_execution_result(data: Dict[str, Any]) -> str:
         output.append(f"| Field | Value |")
         output.append(f"|-------|-------|")
         output.append(f"| **Execution ID** | `{execution_id}` |")
-        output.append(f"| **TriggeredStatus** | {status_emoji} {status} |")
+        output.append(f"| **Trigger Status** | {status_emoji} {status} |")
 
         if message:
             output.append(f"| **Message** | {message} |")

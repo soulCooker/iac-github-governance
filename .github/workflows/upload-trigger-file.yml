@@ -19,7 +19,7 @@ on:
       trigger_file_name:
         required: true
         type: string
-    
+
     outputs:
       result_path:
         description: "The log path of the execution result"
@@ -112,11 +112,16 @@ jobs:
           result_path="${oss_path}/notifications/${{ github.repository }}/${{ inputs.base_ref }}/${trigger_file_name}"
           echo "RESULT_PATH=$result_path" >> $GITHUB_OUTPUT
 
+          # Remove .json suffix from trigger_file_name for id field
+          trigger_id="${{ inputs.trigger_file_name }}"
+          trigger_id="${trigger_id%.json}"
+
           echo "Creating trigger event file for command: ${{ inputs.command }}"
           cat > trigger-event.json << EOF
           {
-            "id": "${{ github.run_id }}",
+            "id": "$trigger_id",
             "action": "${{ inputs.command }}",
+            "codeHeadSha": "${{ inputs.head_sha }}",
             "codeVersionId": "${{ steps.check_source_package_version.outputs.VERSION_ID }}",
             "codePackagePath": "$code_path",
             "execResultPath": "$result_path",
