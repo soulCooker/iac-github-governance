@@ -14,9 +14,10 @@ from typing import Dict, Any, Optional, Tuple
 from urllib.parse import urlparse
 import alibabacloud_oss_v2 as oss
 
+
 def parse_oss_url(oss_url: str) -> Tuple[Optional[str], Optional[str], Optional[str], list[str]]:
     """Parse OSS URL to extract bucket, key, and region information.
-    
+
     Supports format:
     - oss::https://bucket-name.oss-region.aliyuncs.com/path/to/object
     """
@@ -166,6 +167,7 @@ def format_execution_result(data: Dict[str, Any]) -> str:
             for i, stack in enumerate(stacks, 1):
                 stack_name = stack.get('stackName', 'Unknown')
                 stack_status = stack.get('stackStatus', 'Unknown')
+                stack_message = stack.get('message', '')
 
                 # Stack status with emoji
                 stack_emoji = "✅" if stack_status == "Deployed" else "❌" if stack_status == "Errored" else "⚪"
@@ -174,6 +176,9 @@ def format_execution_result(data: Dict[str, Any]) -> str:
                 output.append("")
                 output.append(f"**Status:** {stack_emoji} {stack_status}")
                 output.append("")
+                if stack_message:
+                    output.append(f"**Message:** {stack_message}")
+                    output.append("")
 
                 # Deployment details
                 deployments = stack.get('deployments', [])
@@ -294,10 +299,10 @@ def poll_and_process_oss_result(oss_url: str, max_wait_time: int = 3600, output_
                 data = json.loads(content)
                 print("✅ JSON content validated successfully")
                 print("")
-                
+
                 # Format the result
                 formatted_result = format_execution_result(data)
-                
+
                 # Write to file if output_file is specified
                 if output_file:
                     try:
@@ -305,8 +310,9 @@ def poll_and_process_oss_result(oss_url: str, max_wait_time: int = 3600, output_
                             f.write(formatted_result)
                         print(f"📄 Result written to file: {output_file}")
                     except Exception as e:
-                        print(f"⚠️  Warning: Failed to write to file {output_file}: {str(e)}")
-                
+                        print(
+                            f"⚠️  Warning: Failed to write to file {output_file}: {str(e)}")
+
                 return formatted_result
             except json.JSONDecodeError as e:
                 print(f"❌ Invalid JSON format: {str(e)}")
