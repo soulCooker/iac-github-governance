@@ -204,6 +204,7 @@ def format_execution_result(data: Dict[str, Any]) -> str:
                         deploy_emoji = {
                             "Applied": "✅",
                             "Planned": "✅",
+                            "PlannedAndFinished": "✅",
                             "Errored": "❌"
                         }.get(deploy_status, "⚪")
 
