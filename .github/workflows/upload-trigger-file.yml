@@ -90,17 +90,18 @@ jobs:
           output=$(python governance/scripts/upload_to_oss.py --key="$code_path" --file_path=code.zip --unique_key="${{ inputs.head_sha }}" 2>&1)
 
           if [ $? -ne 0 ]; then
-            echo "Error: Failed to upload to OSS"
+            echo "ERROR: Failed to upload to OSS"
             echo "$output"
             exit 1
           fi
 
-          echo "Upload output: $output"
-          version_id=$(echo "$output" | grep -o 'Version ID: [^,]*' | cut -d' ' -f2)
+          echo "INFO: Upload successfully"
+          echo "$output"
+          version_id=$(echo "$output" | grep -o 'Version ID: [^,]*' | sed 's/.*Version ID: //')
 
           if [ -z "$version_id" ]; then
             echo "Warning: Could not extract version_id from output"
-            version_id="unknown"
+            version_id=""
           fi
 
           echo "VERSION_ID=$version_id" >> $GITHUB_OUTPUT
