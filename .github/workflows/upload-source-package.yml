@@ -10,6 +10,12 @@ on:
       head_sha:
         required: true
         type: string
+      IAC_GOVERNANCE_REPO:
+        required: true
+        type: string
+      IAC_GOVERNANCE_REF:
+        required: true
+        type: string
 
 env:
   OSS_ACCESS_KEY_ID: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_ID }}
@@ -30,10 +36,10 @@ jobs:
       - name: Checkout scripts
         uses: actions/checkout@v4
         with:
-          repository: shanye997/iac-github-governance
+          repository: ${{ inputs.IAC_GOVERNANCE_REPO }}
           path: governance
           token: ${{ secrets.GITHUB_TOKEN }}
-          ref: main
+          ref: ${{ inputs.IAC_GOVERNANCE_REF }}
           sparse-checkout: |
             scripts/upload_to_oss.py
 
