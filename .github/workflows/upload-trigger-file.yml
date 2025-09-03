@@ -19,6 +19,12 @@ on:
       trigger_file_name:
         required: true
         type: string
+      IAC_GOVERNANCE_REPO:
+        required: true
+        type: string
+      IAC_GOVERNANCE_REF:
+        required: true
+        type: string
 
     outputs:
       result_path:
@@ -46,10 +52,10 @@ jobs:
       - name: Checkout scripts
         uses: actions/checkout@v4
         with:
-          repository: shanye997/iac-github-governance
+          repository: ${{ inputs.IAC_GOVERNANCE_REPO }}
           path: governance
           token: ${{ secrets.GITHUB_TOKEN }}
-          ref: main
+          ref: ${{ inputs.IAC_GOVERNANCE_REF }}
           sparse-checkout: |
             scripts/upload_to_oss.py
 
@@ -90,7 +96,7 @@ jobs:
           fi
 
           echo "Upload output: $output"
-          version_id=$(echo "$output" | grep -o 'version_id: [^,]*' | cut -d' ' -f2)
+          version_id=$(echo "$output" | grep -o 'Version ID: [^,]*' | cut -d' ' -f2)
 
           if [ -z "$version_id" ]; then
             echo "Warning: Could not extract version_id from output"
